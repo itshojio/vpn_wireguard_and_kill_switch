@@ -69,12 +69,21 @@ ip netns add vpn
 created_vpn=1
 ip -n vpn link set lo up
 
-ip link add br-vpn type veth peer name vpn0
-ip link set br-vpn master "$BRIDGE"
-ip link set br-vpn up
-ip link set vpn0 netns vpn
-ip -n vpn link set vpn0 name eth0
-ip -n vpn addr add "$VPN_IP/24" dev eth0
+echo "[*] Tạo kết nối WAN riêng giữa Router và VPN Server..."
+
+ip link add g-wan type veth peer name vpn-wan
+
+ip link set g-wan netns g
+ip link set vpn-wan netns vpn
+
+ip -n g link set g-wan name eth1
+ip -n vpn link set vpn-wan name eth0
+
+ip -n g addr add "$ROUTER_WAN_IP/30" dev eth1
+ip -n vpn addr add "$VPN_IP/30" dev eth0
+
+ip -n g link set eth1 up
+ip -n vpn link set eth0 up
 ip -n vpn link set eth0 up
 
 echo "[*] Tạo khóa WireGuard riêng trên máy này..."
@@ -112,12 +121,21 @@ ip netns exec v wg set wg0 \
 ip -n vpn link set wg0 up
 ip -n v link set wg0 up
 
-# VPN server forwards decrypted packets to the existing G namespace.
-ip netns exec vpn sysctl -w net.ipv4.ip_forward=1 >/dev/null
-ip -n g route replace "$WG_NET" via "$VPN_IP"
+echo "[*] Bật chức năng định tuyến..."
 
-# Preserve the existing V default route. Add only a host route for the VPN endpoint.
-ip -n v route replace "$VPN_IP/32" dev eth0
+ip netns exec g sysctl -w net.ipv4.ip_forward=1 >/dev/null
+ip netns exec vpn sysctl -w net.ipv4.ip_forward=1 >/dev/null
+
+echo "[*] Cấu hình đường đi giữa các mạng..."
+
+ip -n g route replace "$WG_NET" \
+    via "$VPN_IP" dev eth1
+
+ip -n vpn route replace "$LAN_NET" \
+    via "$ROUTER_WAN_IP" dev eth0
+
+ip -n v route replace "$VPN_IP/32" \
+    via "$G_IP" dev eth0
 
 trap - ERR
 

