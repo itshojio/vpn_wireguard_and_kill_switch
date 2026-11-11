@@ -17,6 +17,8 @@ if ns_exists v; then
   ip netns exec v python3 "$ROOT_DIR/scripts/vpn_guard.py" status || true
   echo; echo "=== Route trên V ==="
   ip -n v route show
+  echo; echo "=== Đường đi tới VPN Chat Server ==="
+  ip -n v route get "$WG_SERVER_IP" 2>/dev/null || true
 fi
 if ns_exists a; then
   echo; echo "=== Route đến VPN endpoint trên A ==="
@@ -30,7 +32,8 @@ fi
 if ns_exists vpn; then
   echo; echo "=== WireGuard Server trên VPN ==="
   ip netns exec vpn wg show || true
-  echo; echo "=== Route và forwarding trên VPN ==="
+  echo; echo "=== Route trên VPN ==="
   ip -n vpn route show
-  ip netns exec vpn sysctl net.ipv4.ip_forward
+  echo; echo "=== VPN Chat Server listener (nếu đang chạy) ==="
+  ip netns exec vpn ss -lnt 2>/dev/null | grep -F ":$CHAT_PORT" || echo "chưa có listener trên cổng $CHAT_PORT"
 fi

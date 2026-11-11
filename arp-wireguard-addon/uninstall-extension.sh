@@ -9,6 +9,7 @@ require_root
 
 if ns_exists v; then
   ip netns exec v python3 "$ROOT_DIR/scripts/vpn_guard.py" remove 2>/dev/null || true
+  ip -n v route del "$WG_SERVER_IP/32" dev wg0 2>/dev/null || true
   ip -n v route del "$G_IP/32" dev wg0 2>/dev/null || true
   ip -n v route del "$VPN_IP/32" via "$G_IP" dev eth0 2>/dev/null || true
   ip -n v link del wg0 2>/dev/null || true
@@ -36,4 +37,4 @@ ip link del vpn-wan 2>/dev/null || true
 rm -rf "$KEY_DIR" "$STATE_DIR" "$PID_DIR"
 echo "[✓] Đã gỡ add-on WireGuard."
 echo "[✓] Namespace v, a, g và bridge br-lab được giữ nguyên."
-echo "[✓] HTTP server trong namespace G không bị dừng."
+echo "[✓] Không có dịch vụ ứng dụng nào trên G được tạo hoặc quản lý bởi add-on."

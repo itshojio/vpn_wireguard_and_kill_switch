@@ -1,155 +1,185 @@
-# WireGuard Extension Add-on for Existing ARP Lab
+# Phần mở rộng WireGuard cho mô hình ARP MITM
 
-Đây là gói mở rộng cho mô hình V–A–G đã được dựng sẵn trên Kali. Add-on **không dựng lại và không xóa** namespace `v`, `a`, `g` hoặc bridge `br-lab`.
+Gói này bổ sung một VPN Server vào mô hình LAN V–A–G đã được dựng sẵn. Nó **không dựng lại hoặc xóa** namespace `v`, `a`, `g` hay bridge `br-lab`.
+
+Mục tiêu demo là truyền văn bản hai chiều giữa Victim V và VPN Server. Nội dung chat chỉ được hiển thị ở hai đầu tunnel. Attacker A và Gateway G chỉ quan sát/chuyển tiếp gói WireGuard bên ngoài; G không phải đích ứng dụng.
 
 ## 1. Mô hình gốc cần có
 
 | Thành phần | Namespace | Interface | Địa chỉ |
 |---|---|---|---|
-| Victim | `v` | `eth0` | `192.168.77.10/24` |
-| Attacker | `a` | `eth0` | `192.168.77.20/24` |
-| Gateway / HTTP server | `g` | `eth0` | `192.168.77.1/24` |
+| Victim V | `v` | `eth0` | `192.168.77.10/24` |
+| Attacker A | `a` | `eth0` | `192.168.77.20/24` |
+| Gateway G | `g` | `eth0` | `192.168.77.1/24` |
 | LAN bridge | host | `br-lab` | Kết nối V, A, G |
 
-Dịch vụ HTTP dùng để kiểm thử phải đang lắng nghe tại `192.168.77.1:8080` **bên trong namespace G**. Add-on không tự tạo hoặc dừng dịch vụ HTTP này.
+VPN Server được tạo trong namespace `vpn`, nối riêng với G qua WAN point-to-point. Không gắn VPN Server vào `br-lab`.
 
-## 2. Add-on bổ sung gì?
-
-VPN Server được tạo trong namespace `vpn`, nối với G bằng một cặp veth riêng. VPN Server **không** được nối vào `br-lab`.
+## 2. Địa chỉ của phần mở rộng
 
 | Thành phần | Interface | Địa chỉ |
 |---|---|---|
 | G – WAN | `eth1` | `203.0.113.1/30` |
-| VPN – WAN | `eth0` | `203.0.113.2/30` |
+| VPN Server – WAN | `eth0` | `203.0.113.2/30` |
 | V – WireGuard | `wg0` | `10.200.0.2/24` |
-| VPN – WireGuard | `wg0` | `10.200.0.1/24` |
-| WireGuard UDP | – | `51820` |
+| VPN Server – WireGuard | `wg0` | `10.200.0.1/24` |
+| Ứng dụng chat trên VPN Server | TCP | `10.200.0.1:9000` |
+| WireGuard endpoint | UDP | `203.0.113.2:51820` |
 
-`203.0.113.0/30` là dải TEST-NET dùng trong mô hình lab, không phải địa chỉ Internet/VPS thật.
+`203.0.113.0/30` là dải TEST-NET dùng trong mô phỏng, không phải Internet hay VPS thật.
 
-Luồng dữ liệu khi VPN bật:
+## 3. Luồng dữ liệu chính xác
+
+**Chiều V gửi lên VPN Server:**
 
 ```text
-V (10.200.0.2)
-    -> WireGuard mã hóa
-    -> V eth0 / G eth0
-    -> G eth1 (203.0.113.1)
-    -> VPN eth0 (203.0.113.2)
-    -> VPN giải mã
-    -> G (192.168.77.1:8080)
+V: ứng dụng chat
+  -> TCP đích 10.200.0.1:9000 qua wg0
+  -> WireGuard mã hóa tại V
+  -> gói UDP/51820 đi qua LAN: V -> A (MITM) -> G
+  -> G định tuyến qua WAN đến VPN Server
+  -> WireGuard giải mã tại VPN Server
+  -> ứng dụng chat trên VPN Server hiển thị nội dung
 ```
 
-## 3. Cài đặt
+**Chiều VPN Server phản hồi về V:**
 
-Giải nén thư mục `arp-wireguard-addon`, mở Terminal tại thư mục đó và chạy:
+```text
+VPN Server: ứng dụng chat
+  -> TCP gửi về 10.200.0.2 qua wg0
+  -> WireGuard mã hóa tại VPN Server
+  -> gói UDP/51820 đi qua G và đoạn LAN có A MITM
+  -> V nhận gói WireGuard
+  -> WireGuard giải mã tại V
+  -> ứng dụng chat trên V hiển thị nội dung
+```
+
+A và G không chạy ứng dụng chat/HTTP, không nhận plaintext. Chúng có thể thấy địa chỉ và cổng bên ngoài, kích thước, thời điểm gói; A vẫn có thể chặn hoặc làm gián đoạn kết nối. WireGuard không che giấu metadata của gói ngoài.
+
+## 4. Cài đặt
+
+Giải nén ZIP, vào thư mục `arp-wireguard-addon`, rồi chạy:
 
 ```bash
 chmod +x install-extension.sh uninstall-extension.sh scripts/*.sh
 sudo ./install-extension.sh
 ```
 
-Installer sẽ kiểm tra V/A/G, bridge và địa chỉ LAN; kiểm tra interface `g/eth1`, `v/wg0`, namespace `vpn` và thư mục khóa chưa tồn tại; sau đó tạo WAN veth, namespace VPN, khóa và WireGuard. Nếu lỗi giữa chừng, installer cố gắng hoàn tác các tài nguyên add-on đã tạo.
+Installer kiểm tra các namespace và địa chỉ LAN hiện có, sau đó tạo namespace `vpn`, cặp WAN veth, khóa và hai interface WireGuard. Nếu có thành phần add-on trùng tên, installer dừng thay vì ghi đè.
 
-**Không chạy installer khi `vpn`, `g/eth1`, `v/wg0`, hoặc thư mục khóa/trạng thái của add-on đang tồn tại.** Nếu add-on đã được cài trước đó, hãy kiểm tra và gỡ đúng phiên bản trước khi cài lại.
+**Không chạy installer lần nữa nếu add-on đã được cài và namespace `vpn` đang tồn tại.** Với bản cài đang có, dùng `enable-vpn.sh` của gói đã cập nhật để cập nhật AllowedIPs và route tunnel mà không phải dựng lại topology.
 
-## 4. Bật VPN và Kill Switch
+## 5. Bật VPN và Kill Switch
 
 ```bash
 sudo ./scripts/enable-vpn.sh
 sudo ./scripts/status.sh
 ```
 
-Trên V, route tới VPN endpoint `203.0.113.2/32` đi qua Gateway `192.168.77.1` trên eth0. Route thử nghiệm tới G `192.168.77.1/32` đi qua wg0.
+Lệnh bật VPN cập nhật peer của V để chỉ định `10.200.0.1/32` qua WireGuard, giữ route tới endpoint `203.0.113.2/32` bên ngoài tunnel qua G, và cài Kill Switch ở V.
 
-Kill Switch cho phép ứng dụng đi qua wg0 và cho phép UDP tới VPN endpoint qua eth0; chặn lưu lượng IPv4 trực tiếp khác và chặn IPv6 trong namespace V.
+Kill Switch cho phép ứng dụng đi qua `wg0`, đồng thời chỉ cho phép UDP đến endpoint WireGuard `203.0.113.2:51820` đi trực tiếp qua `eth0`. Các lưu lượng IPv4 trực tiếp khác và IPv6 trong namespace V bị chặn.
 
-## 5. Kiểm tra HTTP
+## 6. Chạy demo chat hai chiều
 
-```bash
-sudo ./scripts/test-http.sh
-```
+Mở hai terminal. Chạy VPN Server trước:
 
-Nếu lệnh thất bại, trước tiên xác nhận HTTP server đang chạy trong namespace G:
+**Terminal của VPN Server (namespace `vpn`, ví dụ TMN 8):**
 
 ```bash
-sudo ip netns exec g ss -lntp | grep ':8080'
+sudo ./scripts/run-vpn-chat-server.sh
 ```
 
-Nếu chưa có dịch vụ HTTP, cần khởi chạy dịch vụ thử nghiệm trong namespace G trước. Ví dụ:
+Server lắng nghe tại `10.200.0.1:9000`. Sau khi client kết nối, nội dung từ V sẽ xuất hiện với nhãn `[Victim]`. Nhập phản hồi tại dấu nhắc `VPN Server>` rồi nhấn Enter.
+
+**Terminal của Victim (namespace `v`, ví dụ TMN 2):**
 
 ```bash
-sudo mkdir -p /tmp/arp-http
-printf 'DU LIEU THU NGHIEM - ARP LAB\n' | sudo tee /tmp/arp-http/index.html
-sudo ip netns exec g python3 -m http.server 8080 --bind 192.168.77.1 --directory /tmp/arp-http
+sudo ./scripts/run-victim-chat.sh
 ```
 
-Lệnh cuối chạy ở foreground; mở Terminal khác để chạy `test-http.sh`.
+Nhập nội dung tại `Victim>` rồi nhấn Enter. Nội dung sẽ hiện ở terminal VPN Server. Khi VPN Server nhập phản hồi, nội dung đó sẽ hiện ở terminal Victim. Nhập `/quit` để kết thúc phiên.
 
-## 6. Mô phỏng MITM và bắt gói
+Mỗi lần nhấn Enter gửi một thông điệp dạng một dòng. Ứng dụng client kết nối đến `10.200.0.1`, không kết nối đến G.
 
-Bật MITM trên đoạn LAN V–G:
+## 7. Bắt gói để chứng minh A và G không đọc được nội dung
+
+Nếu A đã được cấu hình MITM và các tiến trình ARP spoof đang chạy, **không chạy lại** lệnh khởi động MITM. Nếu chưa bật MITM, từ thư mục dự án chạy:
 
 ```bash
 sudo ./scripts/start-mitm-vpn.sh
 ```
 
-A giả mạo ARP để V gửi frame dành cho G tới A, đồng thời G gửi frame dành cho V tới A. VPN Server nằm ở subnet WAN riêng nên **không** bị ARP spoof trực tiếp.
-
-Ở Terminal khác, bắt gói WireGuard tại A:
+Trên terminal A:
 
 ```bash
 sudo ./scripts/capture-vpn.sh
 ```
 
-Tạo lưu lượng HTTP từ V:
+Khi gửi tin nhắn, A sẽ thấy UDP/51820 và dữ liệu gói ngoài nhưng không thấy nội dung văn bản đã gửi. Có thể đối chiếu thêm:
+
+Trên VPN Server, bắt gói tại WAN (vẫn là gói mã hóa):
 
 ```bash
-sudo ./scripts/test-http.sh
+sudo ip netns exec vpn tcpdump -ni eth0 'udp port 51820'
 ```
 
-Khi tunnel hoạt động, A có thể quan sát gói UDP/51820 và thông tin mạng bên ngoài, nhưng không đọc được nội dung HTTP nằm bên trong WireGuard.
+Trên VPN Server, bắt gói tại `wg0` (đã giải mã, thấy TCP chat):
 
-Dừng MITM helper:
+```bash
+sudo ip netns exec vpn tcpdump -A -s 0 -ni wg0 'tcp port 9000'
+```
+
+Trên G, chỉ quan sát gói UDP được định tuyến:
+
+```bash
+sudo ip netns exec g tcpdump -ni eth1 'udp port 51820'
+```
+
+Dừng MITM helper do add-on khởi chạy (chỉ khi bạn muốn dừng các tiến trình do script này quản lý):
 
 ```bash
 sudo ./scripts/stop-mitm-vpn.sh
 ```
 
-Lệnh này dừng đúng các tiến trình do add-on tạo, khôi phục route và trạng thái forwarding đã lưu của A, đồng thời xóa cache ARP ở V và G.
+## 8. Kiểm tra Kill Switch
 
-## 7. Kiểm tra Kill Switch
-
-Khi HTTP qua VPN đang hoạt động:
+Sau khi bật Kill Switch:
 
 ```bash
 sudo ./scripts/test-killswitch.sh
 ```
 
-Script xác nhận HTTP hoạt động trước, sau đó tạm hạ wg0 và thử ép HTTP đi trực tiếp qua eth0. Nếu firewall chặn kết nối, kết quả là `[PASS]`. Cuối cùng script khôi phục wg0 và route qua tunnel.
+Bài kiểm tra gửi một gói UDP probe thử nghiệm hướng tới G sau khi tạm hạ `wg0`, rồi xác nhận bộ đếm rule DROP của firewall tăng. Đây **không phải dữ liệu chat** và G không chạy dịch vụ nhận nội dung. Script tự khôi phục `wg0` và route chat qua tunnel.
 
-## 8. Tắt VPN nhưng giữ add-on
+## 9. Trạng thái, tắt và gỡ
+
+Xem trạng thái:
+
+```bash
+sudo ./scripts/status.sh
+```
+
+Tắt Kill Switch và route chat qua tunnel nhưng giữ namespace/interface WireGuard:
 
 ```bash
 sudo ./scripts/disable-vpn.sh
 ```
 
-Lệnh này gỡ Kill Switch và route thử nghiệm qua wg0; không xóa namespace VPN hoặc WireGuard interface.
-
-## 9. Gỡ add-on
+Gỡ add-on:
 
 ```bash
 sudo ./uninstall-extension.sh
 ```
 
-Lệnh gỡ Kill Switch, route do add-on tạo, WireGuard interface trên V, WAN interface `g/eth1`, namespace `vpn`, khóa và trạng thái add-on. Nó khôi phục giá trị `ip_forward` ban đầu của G nếu đã được lưu.
+Lệnh gỡ xóa tài nguyên do add-on tạo, nhưng giữ namespace `v`, `a`, `g` và bridge `br-lab`. Không dùng lệnh gỡ nếu bạn muốn tiếp tục giữ VPN Server đang chạy.
 
-Lệnh **không xóa** namespace `v`, `a`, `g`, bridge `br-lab`, địa chỉ LAN hoặc HTTP server của G.
+## 10. Diễn giải kết quả
 
-## 10. Giới hạn và diễn giải kết quả
+- Nội dung hiển thị ở ứng dụng VPN Server là dữ liệu sau khi WireGuard giải mã.
+- Bắt gói tại A hoặc tại WAN interface của VPN Server chỉ thấy lớp UDP WireGuard bên ngoài, không thấy nội dung chat plaintext.
+- Bắt gói tại `vpn/wg0` thấy TCP chat sau giải mã.
+- Chiều phản hồi chứng minh VPN Server cũng mã hóa dữ liệu trước khi gửi về V.
+- WireGuard bảo vệ nội dung và tính toàn vẹn trong tunnel; không ngăn MITM làm rớt/chậm gói và không che giấu metadata bên ngoài.
 
-- Đây là mô hình lab cô lập trên một máy Kali, không phải VPN qua Internet thật.
-- WireGuard không ngăn ARP spoofing; nó mã hóa dữ liệu bên trong tunnel.
-- A vẫn có thể quan sát metadata gói UDP và gây gián đoạn kết nối.
-- HTTP chỉ được dùng để minh họa plaintext khi đi trực tiếp và ciphertext khi nằm trong tunnel. Khi triển khai thực tế vẫn cần HTTPS.
-- Kill Switch trong add-on chặn IPv6 trong namespace V; phạm vi mô hình định tuyến là IPv4.
-- Cần bảo vệ khóa riêng tại `/etc/arp-wireguard-extension/keys/`; không đưa khóa riêng lên GitHub.
+Đây là demo lab IPv4, không phải ứng dụng chat dùng trong môi trường sản xuất. Khóa riêng phải được bảo vệ trong `/etc/arp-wireguard-extension/keys/` và không đưa lên GitHub.

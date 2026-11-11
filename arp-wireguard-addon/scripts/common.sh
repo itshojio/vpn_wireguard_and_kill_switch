@@ -18,6 +18,7 @@ WG_NET="10.200.0.0/24"
 WG_SERVER_IP="10.200.0.1"
 WG_CLIENT_IP="10.200.0.2"
 WG_PORT="51820"
+CHAT_PORT="9000"
 
 KEY_DIR="/etc/arp-wireguard-extension/keys"
 STATE_DIR="/var/lib/arp-wireguard-extension"

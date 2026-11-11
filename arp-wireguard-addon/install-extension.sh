@@ -31,15 +31,15 @@ for dev in g-wan vpn-wan wg-addon-probe; do
 done
 
 missing=0
-for cmd in wg ip iptables ip6tables python3 arpspoof tcpdump curl sysctl; do
+for cmd in wg ip iptables ip6tables python3 arpspoof tcpdump sysctl; do
   command -v "$cmd" >/dev/null 2>&1 || missing=1
 done
 if [[ "$missing" -eq 1 ]]; then
   echo "[*] Cài các công cụ cần thiết..."
   apt-get update
-  DEBIAN_FRONTEND=noninteractive apt-get install -y wireguard-tools iproute2 iptables python3 dsniff tcpdump curl
+  DEBIAN_FRONTEND=noninteractive apt-get install -y wireguard-tools iproute2 iptables python3 dsniff tcpdump
 fi
-for cmd in wg ip iptables ip6tables python3 arpspoof tcpdump curl sysctl; do
+for cmd in wg ip iptables ip6tables python3 arpspoof tcpdump sysctl; do
   command -v "$cmd" >/dev/null 2>&1 || { echo "[ERROR] Thiếu lệnh '$cmd' sau khi cài đặt."; exit 1; }
 done
 
@@ -125,15 +125,14 @@ ip netns exec vpn wg set wg0 \
 ip netns exec v wg set wg0 \
   private-key "$KEY_DIR/client.key" \
   peer "$SERVER_PUB" endpoint "$VPN_IP:$WG_PORT" \
-  allowed-ips "$G_IP/32" persistent-keepalive 25
+  allowed-ips "$WG_SERVER_IP/32" persistent-keepalive 25
 
 ip -n vpn link set wg0 up
 ip -n v link set wg0 up
 
-# Required routing and forwarding for the two routed networks.
+# Forward only the outer WireGuard UDP packets through G. The inner TCP
+# chat traffic terminates locally on vpn/wg0; G does not route or receive it.
 ip netns exec g sysctl -w net.ipv4.ip_forward=1 >/dev/null
-ip netns exec vpn sysctl -w net.ipv4.ip_forward=1 >/dev/null
-ip -n g route replace "$WG_NET" via "$VPN_IP" dev eth1
 ip -n vpn route replace "$LAN_NET" via "$ROUTER_WAN_IP" dev eth0
 # Endpoint traffic must leave V through its LAN gateway, not through wg0.
 ip -n v route replace "$VPN_IP/32" via "$G_IP" dev eth0
@@ -150,4 +149,5 @@ echo
 echo "Bước tiếp theo:"
 echo "    sudo ./scripts/enable-vpn.sh"
 echo "    sudo ./scripts/status.sh"
-echo "    sudo ./scripts/test-http.sh"
+echo "    sudo ./scripts/run-vpn-chat-server.sh"
+echo "    sudo ./scripts/run-victim-chat.sh"
